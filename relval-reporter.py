@@ -23,6 +23,8 @@ class WikiSite:
     def __init__(self):
         self.site = Wiki()
         self.available_matrices = []
+        self.last_sections = []
+        self.last_resultrows = []
 
     def get_available_matrices(self):
         current = self.site.current_event
@@ -30,6 +32,26 @@ class WikiSite:
         for page in available:
             self.available_matrices.append(page.testtype)
         return self.available_matrices
+
+    def get_matrix_sections(self, matrixtype):
+        matrix = self.site.get_validation_page(matrixtype)
+        sections = matrix.sections
+        for section in sections:
+            if section['level'] == '4':
+                self.last_sections.append(section['line'])
+        return self.last_sections
+        
+    def get_section_testcases(self, matrixtype, section):
+        matrix = self.site.get_validation_page(matrixtype)
+        rows = matrix.get_resultrows()
+        for row in rows:
+            if row.section == section:
+                self.last_resultrows.append(row.testcase)
+        return self.last_resultrows
+        
+
+    def get_testcase_columns(self, testcase):
+        pass
 
 class Parser:
     def __init__(self):
