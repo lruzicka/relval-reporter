@@ -22,6 +22,7 @@ from wikitcms.wiki import ResTuple
 class WikiSite:
     def __init__(self):
         self.site = Wiki()
+        self.site.login()
         self.available_matrices = {}
         self.current = self.site.current_event
         available = self.current.result_pages
@@ -50,9 +51,9 @@ class WikiSite:
                 rows.append(row.testcase)
         return rows
 
-    def get_testcase_columns(self, matrixtype, testcase):
+    def get_testcase_columns(self, matrixtype, section, testcase):
         matrix = self.available_matrices[matrixtype]
-        testcase = matrix.find_resultrow(testcase)
+        testcase = matrix.find_resultrow(testcase, section)
         columns = []
         for col in testcase.columns:
             if col != "Milestone" and col != "Test Case":
@@ -70,6 +71,12 @@ class WikiSite:
             event = {"release": self.current.release, "milestone": self.current.milestone, "compose": self.current.compose}
             return event
 
+    def override_current(self, release, milestone, compose):
+        pass
+
+    def report_results(self, results):
+        self.site.report_validation_results(results)
+
 class Parser:
     def __init__(self):
         """ Read the command line arguments and return them to the program. """
@@ -86,6 +93,7 @@ class Parser:
         parser.add_argument('-b', '--bot', default="False", help="If the reporting user is a bot.")
         parser.add_argument('-u', '--user', default=None, help="Who reports the results.")
         parser.add_argument('-n', '--comment', default=None, help="Provide comment, if needed.")
+        parser.add_argument('-x', '--interactive', default="False", help="Report results interactively.")
         self.args = parser.parse_args()
 
     def get_args(self):
@@ -108,35 +116,118 @@ class Printer:
             for key in toprint.keys():
                 print(f"{key}: {toprint[key]}")
 
-class Reporter:
-    def __init__(self):
-        pass
+    def make_menu(self, items):
+        menu = {}
+        key = 1
+        for item in items:
+            menu[key] = item
+            key += 1
+        return menu
 
-    def report_wiki_results(column, result, user=None, comment=''):
-        site = Wiki()
-        page = get_testpage()
-        test = page.find_resultrow('QA:Testcase_Mediakit_Checksums')
-        if not user:
-            user = "donkey"
-            bot = True
+
+class Collector:
+    def __init__(self, wiki, printer):
+        self.release = None
+        self.milestone = None
+        self.compose = None
+        self.type = None
+        self.section = None
+        self.testcase = None
+        self.column = None
+        self.status = None
+        self.comment = None
+        self.user = None
+        self.bot = False
+        self.wiki = wiki
+        self.gutenberg = printer
+
+    def collect_data(self, release=None, milestone=None, compose=None, user=None):
+        current = self.wiki.get_current()
+        if release:
+            self.release = release
         else:
-            bot = False
+            self.release = current['release']
+
+        if milestone:
+            self.milestone = milestone
+        else:
+            self.milestone = current['milestone']
+
+        if compose:
+            self.compose = compose
+        else:
+            self.compose = current['compose']
+        
+        menu = self.gutenberg.make_menu(self.wiki.get_available_matrices())
+        self.gutenberg.print_formatted(menu, 'Matrix type: ')
+        choice = int(input("Choose one of the above: "))
+        self.type = menu[choice]
+
+        menu = self.gutenberg.make_menu(self.wiki.get_matrix_sections(self.type))
+        self.gutenberg.print_formatted(menu, "Available sections")
+        choice = int(input("Choose one of the above: "))
+        self.section = menu[choice]
+
+        menu = self.gutenberg.make_menu(self.wiki.get_section_testcases(self.type, self.section))
+        self.gutenberg.print_formatted(menu, "Available testcases")
+        choice = int(input("Choose one of the above: "))
+        self.testcase = menu[choice]
+        
+        menu = self.gutenberg.make_menu(self.wiki.get_testcase_columns(self.type, self.section, self.testcase))
+        self.gutenberg.print_formatted(menu, "Available columns")
+        choice = int(input("Choose one of the above: "))
+        self.column = menu[choice]
+
+        menu = self.gutenberg.make_menu(["pass", "fail", "inprogress"])
+        self.gutenberg.print_formatted(menu, "Result")
+        choice = int(input("Choose one of the above: "))
+        self.status = menu[choice]
+        
+        comment = input("Do you want to add some comment (hit enter to skip): ")
+        if not comment:
+            self.comment = ''
+        else:
+            self.comment = f"<ref>{comment}</ref>"
+
+        if not user:
+            user = input("No user was given, write the user name or hit enter for a default user: ")
+            if not user:
+                self.user = "donkey"
+                self.bot = True
+        else:
+            self.user = user
+
+        data = [self.release, self.milestone, self.compose, self.type, self.section, self.testcase, self.column, self.status, self.comment, self.user, self.bot]
+        return data
+
+
+    def provide_data(self):
         result = ResTuple(
-                    testtype = page.testtype,
-                    release = page.release,
-                    milestone = page.milestone,
-                    compose = page.compose,
-                    testcase = test.testcase,
-                    section = test.section,
-                    testname = test.name,
-                    env = column,
-                    status = result,
-                    user = user,
-                    bot = bot,
-                    comment = comment)
-        site.login()
-        site.report_validation_results([result])
-        print(f"Results reported to: {test.name}.")
+                    testtype = self.type,
+                    release = self.release,
+                    milestone = self.milestone,
+                    compose = self.compose,
+                    testcase = self.testcase,
+                    section = self.section,
+                    env = self.column,
+                    status = self.status,
+                    user = self.user,
+                    bot = self.bot,
+                    comment = self.comment)
+        return result
+
+
+
+class Reporter:
+    def __init__(self, wiki):
+        self.site = wiki
+        self.results = []
+
+    def add_to_results(self, result):
+        self.results.append(result)
+
+    def report_wiki_results(self):
+        self.site.report_results(self.results)
 
 ###########################################################################################################################
                     
@@ -146,6 +237,9 @@ def main():
     args = argparser.get_args()
     site = WikiSite()
     gutenberg = Printer()
+    gatherer = Collector(site, gutenberg)
+    bluejay = Reporter(site)
+
 
     if str.lower(args.info) == "true":
         if not args.milestone or not args.compose or not args.release:
@@ -158,7 +252,15 @@ def main():
         if args.type and args.section and not args.testcase:
             gutenberg.print_formatted(site.get_section_testcases(args.type, args.section), 'Available TestCases')
         if args.type and args.section and args.testcase and not args.column:
-            gutenberg.print_formatted(site.get_testcase_columns(args.type, args.testcase), 'Available Columns')
+            gutenberg.print_formatted(site.get_testcase_columns(args.type, args.section, args.testcase), 'Available Columns')
+
+    elif str.lower(args.interactive) == "true":
+        data = gatherer.collect_data(user=args.user)
+        #gutenberg.print_formatted(data, "Collected data")
+        toreport = gatherer.provide_data()
+        bluejay.add_to_results(toreport)
+        bluejay.report_wiki_results()
+        print("The result was reported.")
 
         
     else:
