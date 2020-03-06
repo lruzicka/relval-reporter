@@ -48,12 +48,27 @@ class WikiSite:
         rows = []
         for row in all_rows:
             if row.section == section:
-                rows.append(row.testcase)
+                if row.testcase != row.name:
+                    rows.append(f"{row.testcase} {row.name}")
+                else:
+                    rows.append(row.testcase)
         return rows
 
-    def get_testcase_columns(self, matrixtype, section, testcase):
+    def get_testcase_columns(self, matrixtype, section, test, name):
         matrix = self.available_matrices[matrixtype]
-        testcase = matrix.find_resultrow(testcase, section)
+        #all_rows = matrix.get_resultrows()
+        #for row in all_rows:
+        #    if row.section == section:
+        #        if row.testcase == test:
+        #            if test != row.name:
+        #                testname = row.name
+        #            else:
+        #                testname = test
+        print(test, name)
+        if name:
+            testcase = matrix.find_resultrow(test, section, testname=name)
+        else:
+            testcase = matrix.find_resultrow(test, section)
         columns = []
         for col in testcase.columns:
             if col != "Milestone" and col != "Test Case":
@@ -81,19 +96,20 @@ class Parser:
     def __init__(self):
         """ Read the command line arguments and return them to the program. """
         parser = argparse.ArgumentParser()
-        parser.add_argument('-i', '--info', default="False", help="Return info about the current compose matrices.")
+        parser.add_argument('-i', '--info', action='store_true', help="Return info about the current compose matrices.")
         parser.add_argument('-t', '--type', default=None, help="Type of matrix, such as Installation, Base, Desktop.")
         parser.add_argument('-m', '--milestone', default="Rawhide", help="Milestone, such as Rawhide, Branched")
         parser.add_argument('-r', '--release', default=None, help="The number of (upcoming) release, such as 32.")
         parser.add_argument('-c', '--compose', default=None, help="Compose ID, such as 20200116.n.0")
-        parser.add_argument('-e', '--testcase', default=None, help="The name of the testcase.")
+        parser.add_argument('-e', '--testcase', default=None, help="The name of the testcase page.")
+        parser.add_argument('-n', '--testname', default=None, help="The name of the testcase.")
         parser.add_argument('-l', '--column', default=None, help="The name of the column in which you want to report.")
         parser.add_argument('-s', '--section', default=None, help="The section of the matrix page.")
         parser.add_argument('-a', '--status', default="pass", help="The result of the test. Default is pass.")
         parser.add_argument('-b', '--bot', default="False", help="If the reporting user is a bot.")
         parser.add_argument('-u', '--user', default=None, help="Who reports the results.")
-        parser.add_argument('-n', '--comment', default=None, help="Provide comment, if needed.")
-        parser.add_argument('-x', '--interactive', default="False", help="Report results interactively.")
+        parser.add_argument('-o', '--comment', default=None, help="Provide comment, if needed.")
+        parser.add_argument('-x', '--interactive', action='store_true', help="Report results interactively.")
         self.args = parser.parse_args()
 
     def get_args(self):
@@ -109,7 +125,10 @@ class Printer:
             print(f"########## {title} ##############################")
         if type(toprint) == list:
             for item in toprint:
-                print(item)
+                if type(item) == tuple:
+                    print(f"{item[0]}: {item[1]}")
+                else:
+                    print(item)
         elif type(toprint) == str:
             print(toprint)
         elif type(toprint) == dict:
@@ -241,7 +260,7 @@ def main():
     bluejay = Reporter(site)
 
 
-    if str.lower(args.info) == "true":
+    if args.info:
         if not args.milestone or not args.compose or not args.release:
             event = site.get_current()
             gutenberg.print_formatted(event, 'Current Event')
@@ -252,7 +271,9 @@ def main():
         if args.type and args.section and not args.testcase:
             gutenberg.print_formatted(site.get_section_testcases(args.type, args.section), 'Available TestCases')
         if args.type and args.section and args.testcase and not args.column:
-            gutenberg.print_formatted(site.get_testcase_columns(args.type, args.section, args.testcase), 'Available Columns')
+            gutenberg.print_formatted(site.get_testcase_columns(args.type, args.section, args.testcase, args.testname), 'Available Columns')
+        if args.type and args.section and args.testcase and args.testname and not args.column:
+            gutenberg.print_formatted(site.get_testcase_columns(args.type, args.section, args.testcase, name=args.testname), 'Available Columns')
 
     elif str.lower(args.interactive) == "true":
         data = gatherer.collect_data(user=args.user)
